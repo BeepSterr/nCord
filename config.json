@@ -1,0 +1,11 @@
+{
+    "auth": {
+        "token": "discord auth token"
+    },
+
+    "debug": true,
+
+    "defaults": {
+        "prefix": "!"
+    }
+}
