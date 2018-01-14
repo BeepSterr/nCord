@@ -1,41 +1,3 @@
-
-// LOAD MODULES
-try{
-    
-    //Discord.js Base
-    Discord = require("discord.js");
-    client = new Discord.Client();
-    
-    //all of the yes
-    chalk = require('chalk');
-    fs = require('fs');
-    rvequest = require('request');
-    mysql      = require('mysql');
-    path = require('path')
-
-    //temporary require
-    blessed = require('blessed');
-    contrib = require('blessed-contrib')
-
-    //selfbot
-    selfbot = false;
-
-    cmds = {};
-    modules = {};
-    bot = {};
-    bot.stats = { commands: 0 }
-    bot.status = "Starting";
-
-}catch(ex){
-    
-    console.error(ex);
-    
-    console.error('\x1b[31m' + 'FATAL ERROR:');
-    console.error(' Cannot load required bot modules.');
-    console.error(' Try running "npm install" and try again.\x1b[0m');
-    process.exit();
-}
-
 try{
     
     var cfg = require('./config.json');
@@ -48,161 +10,120 @@ try{
     
 }
 
-bot.setStatus = function(text, stat) {
-    status.log(text)
-}
-bot.log = function(text) {
-    log.log(text)
+// LOAD MODULES
+try{
+    
+    //temporary require
+    blessed             = require('blessed');
+    contrib             = require('blessed-contrib')
+    chalk               = require('chalk');
+	request 			= require('request');
+
+    //Discord.js Base
+    Discord             = require("discord.js");
+    bodyParser = require('body-parser')
+
+	var knex = require('knex')({
+		client: 'mysql',
+		connection: {
+			host : 		cfg.mysql.hostname,
+			user : 		cfg.mysql.username,
+			password : 	cfg.mysql.password,
+			database : 	cfg.mysql.database
+		}
+    });
+
+}catch(ex){
+    
+    console.error(ex);
+    
+    console.error('\x1b[31m' + 'FATAL ERROR:');
+    console.error(' Cannot load required bot modules.');
+    console.error(' Try running "npm install" and try again.\x1b[0m');
+    process.exit();
 }
 
-bot.message = function(type, message){
-    if(type == 'in'){ incmsg.log(message); }
-}
 
 //create layout and widgets
 var screen = blessed.screen()
 var grid = new contrib.grid({rows: 12, cols: 12, screen: screen})
 
-var log = grid.set(10, 0, 2, 12, contrib.log, 
+var log = grid.set(4, 0, 8, 12, contrib.log, 
     { fg: "green"
     , selectedFg: "green"
     , label: 'Server Log'})
 
-var status = grid.set(0, 0, 1, 12, contrib.log, 
-    { fg: "green"
-    , selectedFg: "green"
-    , label: 'Bot Status'})
+var table = grid.set(0, 0, 4, 12, contrib.table,
+            { keys: true
+            , fg: 'white'
+            , selectedFg: 'white'
+            , selectedBg: 'blue'
+            , interactive: false
+            , label: 'Shards'
+            , border: {type: "line", fg: "cyan"}
+            , columnSpacing: 10 //in chars
+            , columnWidth: [10, 10, 10, 10, 10, 10, 100] /*in chars*/ })
+            
+    var tabledata = [];   
+    table.setData({ 
+        headers: ['Shard', 'Guilds', 'Channels', 'Members', 'Commands','Uptime', 'Status'], 
+        data: tabledata
+    });
 
-var incmsg = grid.set(1, 8, 4, 4, contrib.log, 
-    { fg: "green"
-    , selectedFg: "green"
-    , label: 'Incomming Messages'})
 
-var outmsg = grid.set(5, 8, 2, 4, contrib.log, 
-    { fg: "green"
-    , selectedFg: "green"
-    , label: 'Outgoing Messages'})
-
-    var socketlog = grid.set(7, 8, 3, 4, contrib.log, 
-        { fg: "green"
-        , selectedFg: "green"
-        , label: 'WS log'})
-    
 
 screen.key(['escape', 'q', 'C-c'], function(ch, key) {
-  return process.exit(0);
+    manager.respawnAll(1000,5000, true);
+    setTimeout(()=>{
+        return process.exit(0);
+    },100)
 });
 
-// fixes https://github.com/yaronn/blessed-contrib/issues/10
+
 screen.on('resize', function() {
   log.emit('attach');
 });
 
 screen.render()
 
-bot.setStatus('Starting bot...');
+log.log(chalk.cyan(`[S] Sharding Initialized.`));
+log.log(chalk.cyan(`[S] Using discord.js ` + Discord.version));
 
-bot.getClient = function(){ return client }
-bot.eventListeners = {}
-bot.subscribeEvent = function(mod, event){
-    if(bot.eventListeners[event] == undefined){
-        bot.eventListeners[event] = [];
-    }
-
-    bot.eventListeners[event].push(mod.module);
-
-};
-
-bot.onEvent = function(event, data){
-
-    if(bot.eventListeners[event] == undefined){
-        bot.eventListeners[event] = [];
-    }
-
-    bot.eventListeners[event].forEach(listener =>{
-        modules[listener].onEvent(event, data);
-    })
-
-};
-
-bot.reply = function(message, content, embed = {}){ message.channel.send(content, embed); outmsg.log(content); }
-
-// Config & Node-Modules loaded
-// Lets start identifying bot modules.
-var botModules = p => fs.readdirSync(p).filter(f => fs.statSync(path.join(p, f)).isDirectory()) //thx @pravdomil
-var modulesInit = botModules(__dirname + '/bot_modules/');
-
-modulesInit.forEach(mod =>{
-
-    bot.log('Loading Module: ' + mod);
-
-    //module 'mod' is about to be loaded.
-    modules[mod] = require(__dirname + '/bot_modules/' + mod + '/module.js');
-    modules[mod].initializeModule(mod);
-
-    //now lets get the commands from said module
-    fs.readdir(__dirname + '/bot_modules/' + mod + '/commands/', (err, files) => {
-        files.forEach(file => {
-            try{
-
-                bot.log('Loading Command: ' + file);
-
-                temp = require(__dirname + '/bot_modules/' + mod + '/commands/' + file);
-                cmds[temp.name] = temp
-                cmds[temp.name].commandInitialization();
-      
-            }catch(ex){
-                bot.log(chalk.red('Loading Module ' + mod + " failed: ") + ex);
-            }
-        });
-    })
-
-})
-
-// EVENT DECLARATION
-client.on('message',                            evnt            => { bot.onEvent('message', evnt);});
-
-client.on('channelCreate',                      evnt            => { bot.onEvent('channelCreate', evnt);});
-client.on('channelDelete',                      evnt            => { bot.onEvent('channelDelete', evnt);});``
-client.on('channelPinsUpdate',                  (evnt, time)    => { bot.onEvent('channelPinsUpdate', {evnt, time});});
-client.on('channelUpdate',                      (evnt, old)     => { bot.onEvent('channelUpdate', {evnt, old});});
-
-client.on('clientUserGuildSettingsUpdate',      evnt            => { bot.onEvent('clientUserGuildSettingsUpdate', evnt);});
-client.on('clientUserSettingsUpdate',           evnt            => { bot.onEvent('clientUserSettingsUpdate', evnt);});
-
-client.on('emojiCreate',                        evnt            => { bot.onEvent('emojiCreate', evnt);});
-client.on('emojiDelete',                        evnt            => { bot.onEvent('emojiDelete', evnt);});
-client.on('emojiUpdate',                        evnt            => { bot.onEvent('emojiUpdate', evnt);});
-
-client.on('error',                              evnt            => { bot.onEvent('error', evnt);});
-client.on('disconnect',                         evnt            => { bot.onEvent('disconnect', evnt);});
-client.on('ready',                              ()              => { bot.onEvent('ready', null); });
-
-//debug info
-client.on('debug', info => {
-    if(cfg.debug == true){
-        socketlog.log(info);
-    }
+manager = new Discord.ShardingManager('./bot.js', {
+    totalShards: cfg.discord.shards,
+    respawn: true,
+    token: cfg.discord.token
 });
 
-//command processing
-client.on('message', message => {
+manager.spawn();
+manager.on('shardCreate', shard => {
     
-    //Prevent selfbots from doing stupid shit.
-    if(selfbot == true && message.author !== client.user) return;
-    
-    //Prefixpls
-    if (!message.content.startsWith(cfg.defaults.prefix) || message.author.bot) return;
-    
-        var messageC = message.content.substring(cfg.defaults.prefix.length, message.content.length);
-        args =  messageC.split(/ +(?=(?:(?:[^"]*"){2})*[^"]*$)/g);
-    
-        if(typeof cmds[args[0]] == 'object'){
-            cmds[args[0]].triggerCommand(message, args);
-            log.log('Executed command ' + args[0]);
-            bot.stats.commands++;
+    log.log(chalk.cyan(`[S] Shard launched: ${shard.id}`))
+
+    shard.on('message', message => {
+
+        if(message.type == "log/default"){ log.log("["+shard.id+"] " + message.message); }
+        
+        if(message.type == "status/update"){ 
+
+            tabledata[shard.id]     = [];
+            tabledata[shard.id][0]  = shard.id;
+            tabledata[shard.id][1]  = message.guilds;
+            tabledata[shard.id][2]  = message.channels;
+            tabledata[shard.id][3]  = message.members;
+            tabledata[shard.id][4]  = message.cmds;
+            tabledata[shard.id][5]  = message.uptime;
+            tabledata[shard.id][6]  = message.status;
+
+            table.setData({ 
+                headers: ['Shard', 'Guilds', 'Channels', 'Members', 'Commands','Uptime', 'Status'], 
+                data: tabledata
+            });
+
         }
-    
-});
 
-client.login(cfg.auth.token);
+        if(message.type == "reboot"){ manager.broadcastEval("setTimeout(() => { process.exit();}, 1000)"); }
+
+    });
+
+});

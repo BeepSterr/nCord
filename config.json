@@ -1,11 +1,16 @@
 {
-    "auth": {
-        "token": "discord auth token"
+    "discord": {
+        "token": "",
+        "shards": "auto",
+        "prefix": "!"
     },
 
-    "debug": true,
-
-    "defaults": {
-        "prefix": "!"
+    "mysql": {
+        "hostname": "localhost",
+        "hostport": "3306",
+        "username": "myuser",
+        "password": "mypass",
+        "database": "discordbot"
     }
+    
 }

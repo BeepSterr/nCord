@@ -1,0 +1,13 @@
+{
+
+    "lang_version": 1,
+    "lang_name":    "English",
+    "lang_short":   "en_US",
+
+    "strings": {
+
+        "errorGeneric":         "Something went wrong."
+
+    }
+    
+}
