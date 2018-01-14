@@ -18,9 +18,6 @@ module.exports = {
 
 			bot.log("Logged in as " + client.user.tag);
 			bot.log(chalk.cyan(`Using discord.js ` + Discord.version));
-
-			//test = client.guilds.filter((guild)=> { if(guild.members.get('71167334798065664')){return true;}else{ return false; }}).array();
-			//bot.log(test);
 			
 			bot.setStatus("Ready");
 			bot.log("config validation completed.");
