@@ -265,13 +265,13 @@ client.on('debug', info => {
 //command processing
 client.on('message', message => {
 
-    var exit    = false;
-    var prefix  = cfg.discord.prefix;
-
     //Handle command checks
     for (var i = 0; i < bot.commandChecks.length; i++) {
         if(bot.commandChecks[i](message, cfg) != true){ return; }
     }
+
+    //get prefix
+    var prefix  = cfg.discord.prefix;
 
     //remove prefix from string
     message.content = message.content.replace(prefix, '');
