@@ -17,8 +17,10 @@ try{
     modules = {};
     bot = {};
     bot.status = "Starting";
+    bot.cache = {};
     bot.stats = { uptime: 0, commandsExecuted: 0}
     bot.selfbot = false;
+    bot.terminating = false;
 
 }catch(ex){
     
@@ -32,7 +34,7 @@ try{
 
 try{
     
-    var cfg = require('./config.json');
+    cfg = require('./config.json');
 
 	knex = require('knex')({
 		client: 'mysql',
@@ -120,26 +122,24 @@ bot.onEvent = function(event, data){
 
 };
 
-bot.L = function(config, value, data = null){
+bot.L = function(config, section, value, data = null){
 
     var usecfg = config
 
     if(langs[config.lang] == undefined){ usecfg.lang = 'en_US' }
 
-    var result = langs[usecfg.lang].strings[value]
-    bot.log(result);
+    var result = langs[usecfg.lang][section][value]
 
     if(result == undefined){ 
-        result = langs['en_US'].strings[value] 
+        result = langs['en_US'][section][value] 
     }
-
-    bot.log(result);
-
+	
     var langstring = result.replace("$1", data);
 
     return langstring;
 
 }
+
 bot.commandChecks = [];
 bot.addCommandCheck = function(func){
 
@@ -152,11 +152,39 @@ bot.addCommandCheck = function(func){
 
 };
 
+bot.handleCommandChecks = function(message, cfg, cb){
+
+	//create copy of checks to work with.
+    var checks = bot.commandChecks;
+    var i = 0;
+	
+	var doLoop = function(checkFailed, i){
+		
+		if(i == checks.length-1 && checkFailed == false){ cb(true, message, cfg); }
+		if(checkFailed == true){ cb(false, message, cfg); }
+		
+		bot.commandChecks[i](message, cfg, (result)=>{
+            checkFailed = !result;
+            i++
+			doLoop(checkFailed, i);
+		}).catch(err => {
+            bot.log(chalk.red('CommandCheck returned an error!'));
+            bot.log(err);
+        })
+		
+	}
+	
+	doLoop(false, 0);
+
+    bot.commandChecks.push(func);
+
+};
+
 bot.aliases = [];
 bot.addAlias = function(command, alias){
 
     bot.aliases[alias] = command.trigger;
-    bot.log('Alias "'+alias+'" for command "' + command.trigger + '" added')
+    //bot.log('Alias "'+alias+'" for command "' + command.trigger + '" added')
 
 };
 
@@ -174,7 +202,7 @@ bot.loadLang = function(){
 				tempJS  = fs.readFileSync(__dirname + '/lang/' + file);
 				temp    = JSON.parse(tempJS);
 
-				if(temp.lang_version == 1){
+				if(temp.lang_version == cfg.discord.lang_ver){
 					langs[temp.lang_short] = temp
 				}else{
 					bot.log(chalk.red('Skipped Language ' + file + " (Incorrect Version)"));
@@ -263,60 +291,85 @@ client.on('debug', info => {
 });
 
 //command processing
-client.on('message', message => {
+client.on('message', msg => {
+
+    msg.cmds = cmds;
 
     //Handle command checks
-    for (var i = 0; i < bot.commandChecks.length; i++) {
-        if(bot.commandChecks[i](message, cfg) != true){ return; }
-    }
+	bot.handleCommandChecks(msg, cfg, (checkResult, message, cfg)=>{
 
-    //get prefix
-    var prefix  = cfg.discord.prefix;
+        cmds = message.cmds
 
-    //remove prefix from string
-    message.content = message.content.replace(prefix, '');
-   
-    //create arguments
-    message.arguments =  message.content.split(/ +(?=(?:(?:[^"]*"){2})*[^"]*$)/g);
-	
-    //check if alias exists
-    if(typeof bot.aliases[message.arguments[0]] == 'string'){
+        if(!checkResult){ return; }
 
-        //run alias
-        cmds[bot.aliases[message.arguments[0]]].triggerCommand(message, message.arguments);
-        bot.log('Executed aliased command ' + message.arguments[0] + ' for user ' + message.author.tag);
-        bot.stats.commandsExecuted++;
+		//get prefix
+		var prefix  = cfg.discord.prefix;
 
-        return;
+		//remove prefix from string
+		message.content = message.content.replace(prefix, '');
+	   
+		//create arguments
+		message.arguments =  message.content.split(/ +(?=(?:(?:[^"]*"){2})*[^"]*$)/g);
 
-    }
 
-    //check if command exists
-    if(typeof cmds[message.arguments[0]] == 'object'){
+        try{
 
-        //Direct Command
-        cmds[message.arguments[0]].triggerCommand(message, message.arguments);
-        bot.log('Executed command ' + message.arguments[0] + ' for user ' + message.author.tag);
-        bot.stats.commandsExecuted++;
-        return;
+            //check if alias exists
+            if(typeof bot.aliases[message.arguments[0]] == 'string'){
 
-    }
+                //run alias
+                message.cmds[bot.aliases[message.arguments[0]]].triggerCommand(message, message.arguments);
+                bot.log('Executed aliased command ' + message.arguments[0] + ' for user ' + message.author.tag);
+                bot.stats.commandsExecuted++;
+                return;
+
+            }
+            
+            //check if command exists
+            if(typeof message.cmds[message.arguments[0]] == 'object'){
+
+                //Direct Command
+                message.cmds[message.arguments[0]].triggerCommand(message, message.arguments);
+                bot.log('Executed command ' + message.arguments[0] + ' for user ' + message.author.tag);
+                bot.stats.commandsExecuted++;
+                return;
+
+            }
+            
+        }catch(ex){
+
+            bot.log(chalk.red('CommandExecution returned an error!'));
+            console.log(chalk.red(ex.stack));
+
+        }
+			
+	}).catch(err => {
+
+        bot.log(chalk.red('CommandExecution returned an error!'));
+        bot.log(chalk.red(err.message));
+
+    })
+
     
 });
 
 client.options.disabledEvents = ['TYPING_START']
 client.login(cfg.discord.token);
 
-process.on('uncaughtException', function(err) {
+process.on('uncaughtException', function(error) {
 
-    bot.log(chalk.red("Shard going down due to an error, Check #errors"));
-    bot.log(chalk.red(err));
-    bot.paniclog("error", "Process Error: " + err)
+    bot.log(chalk.red("Shard going down due to an error!"));
+    bot.log(chalk.red(error.message));
 
-    process.exit();
+    fs.writeFile("./err.log", error.stack, function(err) {
+
+        process.stderr.write('', function () {
+            process.exit(1);
+        });
+
+    });
 
 });
-  
 
 bot.formattime = function(time){
     if(time < 60){
@@ -335,4 +388,26 @@ setInterval(()=>{
     bot.setStatus(bot.status);
 },1000)
 
-process.on('unhandledRejection', err => bot.log(chalk.red('Uncaught Promise Rejection:' + err)));
+process.on('unhandledRejection', (reason, p) => {
+
+    bot.log(chalk.red( 'Promise Error: ' + reason ))
+
+    fs.writeFile("./err.log", reason.stack, function(err) {
+
+    });
+
+ });
+
+ 
+bot.getChannel = function(input, guild){
+
+	var ch = guild.channels.find( (item)=> { try{ return item.name.toLowerCase() === input.toLowerCase() }catch(ex){ return null }});
+	if( ch != null && typeof ch != undefined) { return ch }
+
+	
+    var ch = guild.channels.get(input);
+    if(typeof ch != null && typeof ch != undefined){ return ch; } 
+
+    return input;
+
+}
